@@ -10,7 +10,7 @@
 |---|---|---|---|
 | 前端框架 | Vue 3 + Vite | Vue 3.4+ | 使用 `<script setup>` 组合式 API |
 | UI 组件 | Element Plus | 最新稳定版 | 表格、分页、上传、标签、弹窗等通用组件直接复用 |
-| 前端 HTTP | Axios | 1.x | 统一封装 `request.js`，请求携带 Cookie（withCredentials） |
+| 前端 HTTP | Axios | 1.x | 统一封装 `request.js`，请求携带 Cookie（withCredentials）；CORS 仅开发期 Vite 5173 跨调试时需要，生产同域由 Spring Boot 托管静态文件后不生效 |
 | 后端框架 | Spring Boot | 2.7.x（JDK 11） | 与 JDK 11 兼容，避免 Spring Boot 3 的 Jakarta 包名迁移 |
 | ORM | MyBatis-Plus | 3.5.x | 单表 CRUD 使用 MP，多标签交集查询手写 XML |
 | 数据库 | MySQL | 8.0 | utf8mb4，时区 UTC |
@@ -20,7 +20,7 @@
 | 定时任务 | Spring `@Scheduled` | - | 清理临时文件、每日统计聚合 |
 | 图表 | ECharts 5 | - | 管理员统计页使用 |
 
-**部署形态**：一台 Windows 机器运行 MySQL、Spring Boot（内置 Tomcat，端口 8080）以及 Vite 构建后的静态文件（直接放入 Spring Boot 的 `resources/static`，不单独部署 Nginx）。局域网访问 `http://主机IP:8080`。
+**部署形态**：单机部署，操作系统 Windows 10/11 或 Ubuntu 20.04 LTS 均可（与 SRS 2.3.2 一致），本机运行 MySQL、Spring Boot（内置 Tomcat，端口 8080）以及 Vite 构建后的静态文件（直接放入 Spring Boot 的 `resources/static`，不单独部署 Nginx）。局域网访问 `http://主机IP:8080`。
 
 ---
 
@@ -78,11 +78,11 @@ taglib/
 │   ├── src/
 │   │   ├── api/                     # axios 接口定义，按模块分文件
 │   │   ├── components/              # 【E】公共组件（空状态、分页控件等）
+│   │   │   └── TagPicker.vue        # 【C】标签选择器（按维度分组折叠，已选标签块）
 │   │   ├── views/
 │   │   │   ├── Login.vue  Register.vue              # 【A】
 │   │   │   ├── Profile.vue                         # 【A】个人中心
 │   │   │   ├── Upload.vue  MyResources.vue         # 【B】
-│   │   │   ├── components/TagPicker.vue            # 【C】标签选择器
 │   │   │   ├── Home.vue  SearchResult.vue         # 【D】首页+检索
 │   │   │   ├── ResourceDetail.vue                  # 【D】详情+互动
 │   │   │   └── admin/AdminLayout.vue  Audit.vue  TagAdmin.vue  Stats.vue   # 【E】
@@ -232,13 +232,13 @@ CREATE TABLE daily_statistics (
 ### 10. audit_log（审计日志表）—— 【E】
 ```sql
 CREATE TABLE audit_log (
-  audit_id    BIGINT PRIMARY KEY AUTO_INCREMENT,
+  audit_id    VARCHAR(64) PRIMARY KEY,            -- 全局唯一字符串编号（UUID），与 SRS 4.1.9 一致
   actor_id    BIGINT NOT NULL,
   action      VARCHAR(50) NOT NULL,          -- DELETE_RESOURCE/UPDATE_TAG/DISABLE_TAG...
   target_type VARCHAR(30),
   target_id   BIGINT,
   detail      VARCHAR(500),
-  result      VARCHAR(20),
+  result      VARCHAR(20),                   -- SUCCESS/FAILURE
   created_at  DATETIME
 );
 ```
@@ -249,17 +249,17 @@ CREATE TABLE audit_log (
 
 ## 四、后端 REST API 清单
 
-统一前缀 `/api`，统一响应体：
+统一前缀 `/api`，统一响应体（依据 SRS 表 4.1.11）：
 ```json
-{ "code": 0, "message": "ok", "data": { ... } }
+{ "code": "OK", "message": "操作成功", "data": { ... }, "request_id": "..." }
 ```
-`code=0` 表示成功，非 0 表示失败；错误码见原 SRS 表 4.1.11。
+成功时 `code="OK"`；失败时 `code` 为形如 `USERNAME_DUPLICATED`、`AUTH_BAD_CREDENTIALS`、`AUTH_ACCOUNT_LOCKED`、`AUTH_ACCOUNT_DISABLED`、`PARAM_ERROR`、`RESOURCE_NOT_FOUND`、`RESOURCE_FORBIDDEN`、`RESOURCE_FILE_TOO_LARGE`、`RESOURCE_EXTENSION_NOT_ALLOWED`、`TAG_INVALID`、`ADMIN_REQUIRED`、`SYSTEM_ERROR` 的字符串错误码，前端按 code 分支提示，不依赖 message 文案。HTTP 状态码只表达 401/403/404/500 等网络层语义，业务成败一律看 body 里的 code。
 
 ### 4.1 用户域（【A】）
 
 | 方法 | 路径 | SRS 编号 | 入参 | 出参 | 说明 |
 |---|---|---|---|---|---|
-| POST | /api/auth/register | 1.1.0 | username, password, nickname | user_id | 账号唯一校验，密码 BCrypt |
+| POST | /api/auth/register | 1.1.0 | username, password, nickname | user_id | 账号唯一校验；username 4~32 位字母数字下划线，password 8~64 位，nickname 2~30 位；密码 BCrypt |
 | POST | /api/auth/login | 1.2.0 | username, password | 用户信息+写入 session | 失败分支见下 |
 | POST | /api/auth/logout | - | - | - | 清除 session |
 | GET | /api/auth/me | 1.4.0 | - | 当前用户信息 | 拦截器校验后可用 |
@@ -268,11 +268,12 @@ CREATE TABLE audit_log (
 
 **登录失败锁定逻辑（SRS-1.3.0）**：
 1. 先按 username 查询用户。查不到则直接返回"账号或密码错误"，不暴露账号是否存在。
-2. 若 `status=TEMP_LOCKED` 且 `locked_until > now()`，返回"账号已临时锁定，请稍后再试"。
-3. 使用 BCrypt.matches 比对密码：
+2. 若 `status=DISABLED`，直接返回"账号已被禁用，请联系管理员"。
+3. 若 `status=TEMP_LOCKED` 且 `locked_until > now()`，返回"账号已临时锁定，请稍后再试"。
+4. 使用 BCrypt.matches 比对密码：
    - 失败：`UPDATE user SET failed_login_count = failed_login_count + 1 WHERE user_id=?`，累计达到 5 时同时设置 `status='TEMP_LOCKED', locked_until=DATE_ADD(NOW(), INTERVAL 15 MINUTE)`。
    - 成功：`failed_login_count=0, status=ACTIVE, locked_until=NULL`，将 user_id 写入 HttpSession。
-4. 并发场景使用数据库行锁或 `UPDATE ... WHERE failed_login_count < 5` 保证原子性。
+5. 并发场景使用数据库行锁或 `UPDATE ... WHERE failed_login_count < 5` 保证原子性。
 
 ### 4.2 资源文件域（【B】）
 
@@ -288,6 +289,8 @@ CREATE TABLE audit_log (
 - application.yml 配置 `spring.servlet.multipart.max-file-size=100MB`、`max-request-size=100MB`。
 - 后端再次校验 `file.getSize()`，超过 100MB 抛出 `RESOURCE_FILE_TOO_LARGE`。
 - 扩展名白名单：`pdf,doc,docx,ppt,pptx,xls,xlsx,txt,zip,jpg,png,mp4`，不在白名单内则拒绝。
+- 除扩展名外，后端还要读取文件头魔数与 `file.getContentType()` 联合校验，防止改后缀上传可执行文件（SRS 4.1.4）。
+- 本期不接入病毒扫描组件，按 SRS EXT-01 豁免口径，上述校验通过后 `scan_status` 直接置 `PASSED`（file_object 表默认值已是 PASSED）；后续若接入扫描服务，需改回 PENDING 门禁。
 - 存储路径：`file_id = UUID.randomUUID()`，写入 `./data/upload/{yyyyMM}/{file_id}`，`original_name` 经 URL 编码后写入响应头，防止路径穿越。
 - 状态流转：上传开始 `resource.status=UPLOADING`，文件落盘并写入 file_object 成功后 `status=ACTIVE`，中途异常则 `status=FAILED`。
 
@@ -343,6 +346,8 @@ ORDER BY
 LIMIT :offset, :page_size;
 ```
 同时执行 `SELECT COUNT(*)` 获取总数。`tag_ids` 为空数组时去掉整个子查询，仅按 keyword 过滤。
+
+**检索入参约束（SRS 4.1.6）**：`keyword` 去掉首尾空格后不超过 100 字符，空串视为不过滤；`tag_ids` 去重后不超过 20 个，含禁用/越权/不存在的标签时直接报 `TAG_INVALID`；`page_size` 只允许 10/20/50，默认 20；`sort_by` 只允许 `UPLOAD_TIME`/`DOWNLOAD_COUNT`，默认 `UPLOAD_TIME`；`page` 超出最大页时返回空列表而非报错。
 
 **点赞/差评（SRS-5.1.0）**：
 - 使用 `INSERT INTO rating ... ON DUPLICATE KEY UPDATE rating=?` 一条 SQL 完成切换。
