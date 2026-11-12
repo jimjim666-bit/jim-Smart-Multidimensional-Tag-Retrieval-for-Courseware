@@ -1,0 +1,43 @@
+@baseUrl = http://localhost:8080
+
+### 注册新账号（重复提交会返回 USERNAME_DUPLICATED）
+# @name register
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json;charset=UTF-8
+
+{
+  "username": "test03",
+  "password": "12345678",
+  "nickname": "三号"
+}
+
+### 登录，成功后自动把 Cookie 存到 authCookie
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json;charset=UTF-8
+
+{
+  "username": "test01",
+  "password": "12345678"
+}
+
+@authCookie = {{login.response.headers.Set-Cookie}}
+
+### 当前登录用户信息
+GET {{baseUrl}}/api/auth/me
+Cookie: {{authCookie}}
+
+### 我的资源（分页）
+GET {{baseUrl}}/api/profile/my-resources?page=1&page_size=20
+Cookie: {{authCookie}}
+
+### 我的收藏（分页）
+GET {{baseUrl}}/api/profile/my-favorites?page=1&page_size=20
+Cookie: {{authCookie}}
+
+### 注销
+POST {{baseUrl}}/api/auth/logout
+Cookie: {{authCookie}}
+
+### 未登录访问 me，应返回 401
+GET {{baseUrl}}/api/auth/me

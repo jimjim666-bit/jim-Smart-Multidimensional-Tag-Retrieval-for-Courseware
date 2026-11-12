@@ -1,0 +1,22 @@
+# 编译产物
+backend/target/
+
+# 本地上传文件目录（运行时生成，不进仓库）
+backend/data/
+data/
+
+# 日志
+*.log
+backend/target/**/logs/
+
+# 本地旧库备份快照，不进 Git
+db/taglib_backup_before_rebuild.sql
+
+# IDE 临时文件
+.idea/
+*.iml
+*.local
+
+# 系统垃圾
+Thumbs.db
+Desktop.ini

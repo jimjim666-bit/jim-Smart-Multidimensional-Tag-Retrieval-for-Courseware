@@ -1,0 +1,28 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    # 与前端展示约定：JVM、JDBC、MySQL 会话统一使用 UTC，接口输出带 Z 的 ISO 8601，前端转北京时间
+    url: jdbc:mysql://localhost:3306/taglib?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC
+    username: "${TAGLIB_DB_USERNAME:jim666}"   # 建议通过环境变量覆盖，勿把生产口令写入仓库
+    password: "${TAGLIB_DB_PASSWORD:Yan6666}"
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      connection-init-sql: "SET time_zone = '+00:00'"
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  mapper-locations: classpath:mapper/**/*.xml
+
+taglib:
+  upload-dir: ./data/upload/
+  cors:
+    # 开发期跨域来源，逗号分隔；[*] 为端口通配。生产同域托管时无实际作用，不要放行任意来源
+    allowed-origins: "http://localhost:[*],http://127.0.0.1:[*]"

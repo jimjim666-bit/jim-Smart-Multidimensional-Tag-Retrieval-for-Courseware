@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "TaglibApplication (backend)",
+            "request": "launch",
+            "mainClass": "com.taglib.TaglibApplication",
+            "projectName": "taglib-backend",
+            // 代码里已固定 UTC，这里显式再声明一次，避免换机器/换启动方式时漏配
+            "vmArgs": "-Duser.timezone=UTC"
+        }
+    ]
+}

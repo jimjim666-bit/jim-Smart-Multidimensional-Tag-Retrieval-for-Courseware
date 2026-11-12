@@ -1,0 +1,13 @@
+{
+    "java.compile.nullAnalysis.mode": "disabled",
+    "java.jdt.ls.java.home": "C:\\Program Files\\JetBrains\\PyCharm 2024.2.1\\jbr",
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-21",
+            "path": "C:\\Program Files\\JetBrains\\PyCharm 2024.2.1\\jbr",
+            "default": true
+        }
+    ],
+    "maven.terminal.customSettings": [],
+    "java.configuration.updateBuildConfiguration": "interactive"
+}

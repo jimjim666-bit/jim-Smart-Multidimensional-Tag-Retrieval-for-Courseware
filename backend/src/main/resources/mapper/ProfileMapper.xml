@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.taglib.user.mapper.ProfileMapper">
+
+    <select id="selectMyResources" resultType="java.util.Map">
+        SELECT resource_id     AS resourceId,
+               title,
+               description,
+               material_type  AS materialType,
+               visibility,
+               status,
+               download_count AS downloadCount,
+               like_count     AS likeCount,
+               DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%sZ') AS createdAt
+        FROM resource
+        WHERE owner_id = #{userId}
+          AND deleted_at IS NULL
+        ORDER BY created_at DESC, resource_id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countMyResources" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM resource
+        WHERE owner_id = #{userId}
+          AND deleted_at IS NULL
+    </select>
+
+    <select id="selectMyFavorites" resultType="java.util.Map">
+        SELECT f.id             AS favoriteId,
+               f.resource_id    AS resourceId,
+               r.title,
+               r.material_type  AS materialType,
+               r.visibility,
+               r.status,
+               r.download_count AS downloadCount,
+               r.like_count     AS likeCount,
+               DATE_FORMAT(f.created_at, '%Y-%m-%dT%H:%i:%sZ') AS favoritedAt
+        FROM favorite f
+                 JOIN resource r ON f.resource_id = r.resource_id
+        WHERE f.user_id = #{userId}
+          AND r.deleted_at IS NULL
+        ORDER BY f.created_at DESC, f.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countMyFavorites" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM favorite f
+                 JOIN resource r ON f.resource_id = r.resource_id
+        WHERE f.user_id = #{userId}
+          AND r.deleted_at IS NULL
+    </select>
+
+</mapper>
