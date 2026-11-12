@@ -226,7 +226,7 @@ CREATE TABLE download_record (
   id          BIGINT PRIMARY KEY AUTO_INCREMENT,
   resource_id BIGINT NOT NULL,
   user_id     BIGINT NOT NULL,
-  result      VARCHAR(20) NOT NULL,              -- SUCCESS/DENIED/NOT_FOUND
+  result      VARCHAR(20) NOT NULL,              -- SUCCESS/DENIED/NOT_FOUND/ERROR
   created_at  DATETIME,
   INDEX idx_resource (resource_id),
   INDEX idx_date (created_at)
@@ -408,9 +408,9 @@ LIMIT :offset, :page_size;
 
 `LoginInterceptor.preHandle()` 逻辑：
 1. 未登录返回 401；每次请求校验账号状态，被禁用或已删除的账号立即失效会话。
-2. **仅 GET/HEAD 请求**路径匹配 `/api/resources/{id}`、`/api/resources/{id}/download` 时，从路径取出 resource_id 并查询 resource：
+2. **仅 GET/HEAD 请求**路径匹配 `/api/resources/{id}`、`/api/resources/{id}/download` 时，从路径取出 resource_id 并查询 resource（查询条件含 `deleted_at IS NULL`）：
+   - `owner_id == 当前 user_id` 放行：owner 可查看自己处于 UPLOADING/PROCESSING/ACTIVE/FAILED/BLOCKED 的资源，BLOCKED 资源由前端标注“已下架”，避免“列表可见、详情 403”；
    - `visibility=PUBLIC && status=ACTIVE` 放行；
-   - `visibility=PRIVATE` 且 `owner_id == 当前 user_id` 放行；
    - 当前用户为 ADMIN 放行；
    - 其他情况返回 403，提示"资源不存在或无权访问"，不区分不存在与无权限，防止枚举探测。
 3. `PUT/DELETE/PATCH` 等写操作以及 `/api/resources/{id}/tags` 等子资源写接口，**不在拦截器做可见性放行**，必须由对应 Service 校验 `owner_id == 当前 user_id`，防止公开资源被他人修改或删除。
