@@ -23,10 +23,10 @@
 **部署形态**：单机部署，操作系统 Windows 10/11 或 Ubuntu 20.04 LTS 均可（与 SRS 2.3.2 一致），本机运行 MySQL、Spring Boot（内置 Tomcat，端口 8080）以及 Vite 构建后的静态文件（直接放入 Spring Boot 的 `resources/static`，不单独部署 Nginx）。局域网访问 `http://主机IP:8080`。
 
 **时间与时区约定（SRS 4.1、5.1、8.3.2 I-06）**：服务端与数据库一律以 **UTC 存储**，界面展示时转换为北京时间（Asia/Shanghai）。
-- **JVM**：启动参数固定 `-Duser.timezone=UTC`，并配置 `spring.jackson.time-zone=UTC`；不允许依赖操作系统默认时区。
+- **JVM**：启动参数固定 `-Duser.timezone=UTC`；不允许依赖操作系统默认时区。实体时间字段统一使用 `Instant`（UTC），Jackson 默认序列化为带 `Z` 的 ISO 8601 字符串；本期不使用 `LocalDateTime`，也不依赖 `spring.jackson.time-zone`（该配置对 `LocalDateTime` 不生效）。
 - **JDBC / MySQL**：连接串使用 `serverTimezone=UTC`；Hikari 设置 `connection-init-sql: "SET time_zone = '+00:00'"`，使 `NOW()`、`CURRENT_TIMESTAMP` 也返回 UTC。
-- **接口**：所有时间字段统一输出 ISO 8601 UTC 字符串（`2026-11-12T08:00:00Z`），精确到秒；前端用 `new Date(iso)` 按浏览器本地时区展示，**禁止在前端手工 ±8 小时**。实体/DTO 建议直接使用 `Instant` / `OffsetDateTime`；若实体使用 `LocalDateTime`，须配置自定义 Jackson 序列化器补 `Z`（`spring.jackson.time-zone` 对 `LocalDateTime` 不生效）。`resultType=Map` 的查询统一转 DTO，或在 SQL 中用 `DATE_FORMAT(..., '%Y-%m-%dT%H:%i:%sZ')`，避免 `Timestamp` 被序列化成数字或本地时间。
-- **自动填充**：MyBatis-Plus 的 `created_at` / `updated_at` 使用 UTC 时钟填充；MySQL 列的 `DEFAULT CURRENT_TIMESTAMP` 在会话时区为 `+00:00` 时同样写入 UTC。
+- **接口**：所有时间字段统一输出 ISO 8601 UTC 字符串（`2026-11-12T08:00:00Z`），精确到秒；前端用 `new Date(iso)` 按浏览器本地时区展示，**禁止在前端手工 ±8 小时**。实体/DTO 的时间字段**统一使用 `Instant`**（不使用 `LocalDateTime` / `OffsetDateTime`）。`resultType=Map` 的查询统一转 DTO，或在 SQL 中用 `DATE_FORMAT(..., '%Y-%m-%dT%H:%i:%sZ')`，避免 `Timestamp` 被序列化成数字或本地时间。
+- **自动填充**：MyBatis-Plus 的 `created_at` / `updated_at` 由元对象填充器以 `Instant.now()`（UTC）写入；MySQL 列的 `DEFAULT CURRENT_TIMESTAMP` 在会话时区为 `+00:00` 时同样写入 UTC。
 - **业务日期**：`daily_statistics.stat_date` 按**北京时间自然日**聚合：统计 SQL 用 `DATE(CONVERT_TZ(created_at, '+00:00', '+08:00'))` 分组，表内仍存 `DATE`，前端标注“北京时间”。
 - Windows 与 Ubuntu 部署都必须显式设置 JVM 时区；如果更换操作系统而漏配时区，所有时间会整体偏移 8 小时。
 
@@ -108,7 +108,7 @@ taglib/
 
 ## 三、数据库表设计（10 张表，全员共用 schema.sql）
 
-字段类型按 MySQL 8.0 编写。时间字段一律按上节约定存 **UTC**。`user`、`resource`、`tag` 等可变更表同时包含 `created_at` 与 `updated_at`；`file_object`、`favorite`、`download_record`、`audit_log` 等只追加或不可变表仅保留 `created_at`；`rating` 保留 `updated_at` 以记录评价最近变更；`daily_statistics` 按 `stat_date` 聚合。`created_at` / `updated_at` 由 MyBatis-Plus 以 UTC 时钟自动填充。主键使用 `BIGINT AUTO_INCREMENT`，对外接口以字符串形式传递，避免 JS 大整数精度丢失。**本期不建外键**（课程演示规模，引用完整性由 Service 层与唯一索引保证），这是相对 SRS 4.2.1 的显式裁剪，后续如需外键可在不改接口的前提下补加。
+字段类型按 MySQL 8.0 编写。时间字段一律按上节约定存 **UTC**。`user`、`resource`、`tag` 等可变更表同时包含 `created_at` 与 `updated_at`；`file_object`、`favorite`、`download_record`、`audit_log` 等只追加或不可变表仅保留 `created_at`；`rating` 保留 `updated_at` 以记录评价最近变更；`daily_statistics` 按 `stat_date` 聚合。`created_at` / `updated_at` 由 MyBatis-Plus 以 `Instant.now()`（UTC）自动填充，实体对应字段类型为 `Instant`。主键使用 `BIGINT AUTO_INCREMENT`，对外接口以字符串形式传递，避免 JS 大整数精度丢失。**本期不建外键**（课程演示规模，引用完整性由 Service 层与唯一索引保证），这是相对 SRS 4.2.1 的显式裁剪，后续如需外键可在不改接口的前提下补加。
 
 ### 1. user（用户表）—— 【A】
 ```sql
@@ -473,7 +473,7 @@ LIMIT :offset, :page_size;
 ### 联调约定
 
 1. 项目启动时由 A 先完成工程骨架、schema.sql、Result 类、LoginInterceptor、CORS 配置并推送到 Git，其他人再拉取各自模块开发，避免重复搭建工程。
-2. 接口字段统一使用驼峰命名（`resourceId`、`createdAt`），数据库字段使用下划线命名（`resource_id`、`created_at`），MyBatis-Plus 配置 `map-underscore-to-camel-case: true`。时间字段一律输出 UTC ISO 8601（`2026-11-12T08:00:00Z`），前端统一按本地时区展示，不在各页面单独转换。
+2. 接口字段统一使用驼峰命名（`resourceId`、`createdAt`），数据库字段使用下划线命名（`resource_id`、`created_at`），MyBatis-Plus 配置 `map-underscore-to-camel-case: true`。时间字段一律输出 UTC ISO 8601（`2026-11-12T08:00:00Z`），实体字段类型统一为 `Instant`，前端统一按本地时区展示，不在各页面单独转换。
 3. 跨模块数据访问直接在对应 Mapper XML 中编写 SQL，不直接调用他人模块的 Service；**文件本体读取是唯一例外**：D 的下载接口通过 B 的 `FileStorageService` 公共方法取流，不自行拼接磁盘路径。
 4. Git 分支：每人一个分支 `user/a`、`user/b`、`user/c`、`user/d`、`user/e`，每日合并一次 main。
 5. 枚举值前后端保持一致：`PUBLIC/PRIVATE/ACTIVE/DELETED/BLOCKED/COURSEWARE/EXAM/EXERCISE/NOTE/COURSE/EXAM/MATERIAL/YEAR/OTHER/LIKE/DISLIKE` 等字符串以后端和 SRS 表 4.1 为准。
